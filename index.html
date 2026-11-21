@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF Studio — All-in-One PDF Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+  <!-- PDF.js for rendering pages to canvas -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- QR code generator (pure JS, no server) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+<!-- ══════════════════════ MODALS ══════════════════════ -->
+
+<!-- Preview Modal -->
+<div class="modal-overlay" id="preview-overlay">
+  <div class="modal preview-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>📄</span><span id="preview-filename">document.pdf</span></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="preview-filemeta" style="font-size:.75rem;color:var(--muted)"></span>
+        <button class="icon-btn" id="preview-close">✕</button>
+      </div>
+    </div>
+    <div class="preview-body">
+      <iframe id="preview-iframe" src="about:blank"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- Signature Modal -->
+<div class="modal-overlay" id="sig-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>✍️</span><span>Add Signature</span></div>
+      <button class="icon-btn" data-close="sig-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="tab-strip" id="sig-tabs">
+        <button class="tab-btn active" data-tab="sig-draw">Draw</button>
+        <button class="tab-btn" data-tab="sig-type">Type</button>
+        <button class="tab-btn" data-tab="sig-upload">Upload</button>
+      </div>
+      <div id="sig-draw" class="tab-panel active">
+        <p class="hint-text">Draw your signature below:</p>
+        <canvas id="sig-canvas" width="420" height="160"></canvas>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btn-sm btn-ghost" id="sig-clear">🗑 Clear</button>
+          <label class="form-label" style="margin:auto 0;font-size:.8rem;">Color:</label>
+          <input type="color" id="sig-color" value="#1a1a2e" style="width:32px;height:32px;border:none;cursor:pointer;background:none;" />
+        </div>
+      </div>
+      <div id="sig-type" class="tab-panel">
+        <p class="hint-text">Type your name:</p>
+        <input type="text" id="sig-text-input" class="form-input" placeholder="Your Name" />
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <button class="font-btn active" data-font="Dancing Script">Script</button>
+          <button class="font-btn" data-font="Pacifico">Pacifico</button>
+          <button class="font-btn" data-font="Caveat">Casual</button>
+        </div>
+        <div id="sig-type-preview" style="margin-top:12px;min-height:60px;font-size:2rem;color:#222;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:8px 16px;"></div>
+      </div>
+      <div id="sig-upload" class="tab-panel">
+        <p class="hint-text">Upload a PNG/JPG of your signature (transparent background works best):</p>
+        <label class="upload-area" for="sig-file-input">
+          <span>📁 Click to select image</span>
+          <input type="file" id="sig-file-input" accept="image/*" style="display:none" />
+        </label>
+        <img id="sig-upload-preview" style="display:none;max-height:120px;margin-top:10px;border-radius:8px;" />
+      </div>
+      <div class="form-group" style="margin-top:16px;">
+        <label class="form-label">Place on file</label>
+        <select class="form-input" id="sig-target-file"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Page number</label>
+        <input type="number" id="sig-page" class="form-input" value="1" min="1" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">X position (px from left)</label>
+          <input type="number" id="sig-x" class="form-input" value="40" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Y position (px from bottom)</label>
+          <input type="number" id="sig-y" class="form-input" value="40" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Width (px)</label>
+          <input type="number" id="sig-width" class="form-input" value="180" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Height (px)</label>
+          <input type="number" id="sig-height" class="form-input" value="60" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="sig-overlay">Cancel</button>
+        <button class="btn btn-primary" id="sig-confirm">✍️ Apply Signature</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Page Numbers Modal -->
+<div class="modal-overlay" id="pagenum-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>📐</span><span>Add Page Numbers</span></div>
+      <button class="icon-btn" data-close="pagenum-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint-text">Page numbers will be stamped on the merged PDF during Merge.</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Start from page</label>
+          <input type="number" id="pn-start" class="form-input" value="1" min="1" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">First number</label>
+          <input type="number" id="pn-first" class="form-input" value="1" min="0" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Format</label>
+        <div class="rotation-btns">
+          <button class="rot-btn active" data-pnfmt="1">1, 2, 3…</button>
+          <button class="rot-btn" data-pnfmt="Page 1">Page 1…</button>
+          <button class="rot-btn" data-pnfmt="- 1 -">- 1 -</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Position</label>
+        <div class="rotation-btns">
+          <button class="rot-btn active" data-pnpos="bottom-center">Bottom Center</button>
+          <button class="rot-btn" data-pnpos="bottom-right">Bottom Right</button>
+          <button class="rot-btn" data-pnpos="top-center">Top Center</button>
+          <button class="rot-btn" data-pnpos="top-right">Top Right</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Font size</label>
+          <input type="number" id="pn-size" class="form-input" value="11" min="6" max="36" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Margin (px)</label>
+          <input type="number" id="pn-margin" class="form-input" value="20" min="0" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="pagenum-overlay">Cancel</button>
+        <button class="btn btn-primary" id="pn-confirm">✅ Enable & Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bookmarks Modal -->
+<div class="modal-overlay" id="bm-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>🔖</span><span>Bookmarks / Table of Contents</span></div>
+      <button class="icon-btn" data-close="bm-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint-text">Each file in the merge queue will become a bookmark pointing to its first page.</p>
+      <div class="form-group">
+        <label class="form-label">Auto-generate from file names</label>
+        <label class="checkbox-label"><input type="checkbox" id="bm-auto" checked /> Use file names as bookmark titles</label>
+      </div>
+      <div id="bm-entries" style="display:flex;flex-direction:column;gap:8px;margin-top:4px;max-height:200px;overflow-y:auto;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="bm-overlay">Cancel</button>
+        <button class="btn btn-primary" id="bm-confirm">✅ Enable & Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Annotate Modal -->
+<div class="modal-overlay" id="annot-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>🖊️</span><span>Annotations</span></div>
+      <button class="icon-btn" data-close="annot-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file to annotate</label>
+        <select class="form-input" id="annot-target-file"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Page</label>
+        <input type="number" id="annot-page" class="form-input" value="1" min="1" />
+      </div>
+      <div class="tab-strip" id="annot-tabs" style="margin-top:4px;">
+        <button class="tab-btn active" data-tab="annot-text">📝 Text Box</button>
+        <button class="tab-btn" data-tab="annot-note">💬 Note</button>
+        <button class="tab-btn" data-tab="annot-line">➖ Line</button>
+      </div>
+      <div id="annot-text" class="tab-panel active">
+        <div class="form-group"><label class="form-label">Text</label><textarea id="annot-text-val" class="form-input" rows="3" placeholder="Your annotation text…"></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">X</label><input type="number" id="annot-tx" class="form-input" value="40" /></div>
+          <div class="form-group"><label class="form-label">Y (from bottom)</label><input type="number" id="annot-ty" class="form-input" value="400" /></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Font size</label><input type="number" id="annot-tsize" class="form-input" value="12" /></div>
+          <div class="form-group"><label class="form-label">Color</label><input type="color" id="annot-tcolor" value="#cc0000" class="form-input" style="padding:4px;" /></div>
+        </div>
+      </div>
+      <div id="annot-note" class="tab-panel">
+        <div class="form-group"><label class="form-label">Note text</label><textarea id="annot-note-val" class="form-input" rows="3" placeholder="Note content…"></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">X</label><input type="number" id="annot-nx" class="form-input" value="40" /></div>
+          <div class="form-group"><label class="form-label">Y (from bottom)</label><input type="number" id="annot-ny" class="form-input" value="400" /></div>
+        </div>
+        <div class="form-group"><label class="form-label">Background color</label><input type="color" id="annot-ncolor" value="#fbbf24" class="form-input" style="padding:4px;" /></div>
+      </div>
+      <div id="annot-line" class="tab-panel">
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">X1</label><input type="number" id="annot-lx1" class="form-input" value="40" /></div>
+          <div class="form-group"><label class="form-label">Y1</label><input type="number" id="annot-ly1" class="form-input" value="400" /></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">X2</label><input type="number" id="annot-lx2" class="form-input" value="300" /></div>
+          <div class="form-group"><label class="form-label">Y2</label><input type="number" id="annot-ly2" class="form-input" value="400" /></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Thickness</label><input type="number" id="annot-lthick" class="form-input" value="2" /></div>
+          <div class="form-group"><label class="form-label">Color</label><input type="color" id="annot-lcolor" value="#cc0000" class="form-input" style="padding:4px;" /></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="annot-overlay">Cancel</button>
+        <button class="btn btn-primary" id="annot-confirm">🖊️ Apply Annotation</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Crop Modal -->
+<div class="modal-overlay" id="crop-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>✂️</span><span>Crop Pages</span></div>
+      <button class="icon-btn" data-close="crop-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="crop-target-file"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Pages <span class="hint">(e.g. all, 1-3, 2)</span></label>
+        <input type="text" id="crop-pages" class="form-input" value="all" />
+      </div>
+      <p class="hint-text" style="margin-bottom:4px;">Crop margins (px to remove from each side):</p>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Top</label><input type="number" id="crop-top" class="form-input" value="0" min="0" /></div>
+        <div class="form-group"><label class="form-label">Bottom</label><input type="number" id="crop-bottom" class="form-input" value="0" min="0" /></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Left</label><input type="number" id="crop-left" class="form-input" value="0" min="0" /></div>
+        <div class="form-group"><label class="form-label">Right</label><input type="number" id="crop-right" class="form-input" value="0" min="0" /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="crop-overlay">Cancel</button>
+        <button class="btn btn-primary" id="crop-confirm">✂️ Apply & Replace</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Fill Forms Modal -->
+<div class="modal-overlay" id="form-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>🔲</span><span>Fill Form Fields</span></div>
+      <button class="icon-btn" data-close="form-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="form-target-file"></select>
+      </div>
+      <button class="btn btn-secondary" id="form-detect-btn" style="width:100%;">🔍 Detect Form Fields</button>
+      <div id="form-fields-list" style="display:flex;flex-direction:column;gap:10px;margin-top:12px;max-height:260px;overflow-y:auto;"></div>
+      <div id="form-no-fields" style="display:none;" class="info-box">No fillable form fields found in this PDF.</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="form-overlay">Cancel</button>
+        <button class="btn btn-primary" id="form-confirm">✅ Fill & Replace</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Image → PDF Modal -->
+<div class="modal-overlay" id="img2pdf-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>🖼️</span><span>Image → PDF</span></div>
+      <button class="icon-btn" data-close="img2pdf-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint-text">Select images (JPG/PNG/WebP). Each image becomes one page.</p>
+      <label class="upload-area" for="img2pdf-input">
+        <span>📁 Click or drop images here</span>
+        <input type="file" id="img2pdf-input" accept="image/*" multiple style="display:none" />
+      </label>
+      <div id="img2pdf-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;"></div>
+      <div class="form-group" style="margin-top:12px;">
+        <label class="form-label">Page size</label>
+        <div class="rotation-btns">
+          <button class="rot-btn active" data-pgsz="A4">A4</button>
+          <button class="rot-btn" data-pgsz="Letter">Letter</button>
+          <button class="rot-btn" data-pgsz="fit">Fit to image</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Output filename</label>
+        <input type="text" id="img2pdf-name" class="form-input" value="images.pdf" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="img2pdf-overlay">Cancel</button>
+        <button class="btn btn-primary" id="img2pdf-confirm">🖼️ Convert & Add to Queue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PDF → Image Modal -->
+<div class="modal-overlay" id="pdf2img-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>📸</span><span>PDF → Images</span></div>
+      <button class="icon-btn" data-close="pdf2img-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="pdf2img-target-file"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Pages <span class="hint">(e.g. all, 1-3, 2)</span></label>
+        <input type="text" id="pdf2img-pages" class="form-input" value="all" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Format</label>
+        <div class="rotation-btns">
+          <button class="rot-btn active" data-imgfmt="png">PNG</button>
+          <button class="rot-btn" data-imgfmt="jpeg">JPG</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Scale / DPI quality</label>
+        <div class="rotation-btns">
+          <button class="rot-btn" data-scale="1">72 DPI</button>
+          <button class="rot-btn active" data-scale="2">144 DPI</button>
+          <button class="rot-btn" data-scale="3">216 DPI</button>
+        </div>
+      </div>
+      <div id="pdf2img-progress" style="display:none;" class="info-box">Rendering pages…</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="pdf2img-overlay">Cancel</button>
+        <button class="btn btn-primary" id="pdf2img-confirm">📸 Export Images</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ MAIN APP ══════════════════════ -->
+<div class="app-wrapper">
+
+  <header class="header">
+    <div class="header-brand">
+      <div class="brand-icon">📎</div>
+      <div>
+        <h1>PDF Studio</h1>
+        <p>All-in-one PDF editor — 100% in your browser, nothing uploaded</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Drop Zone -->
+  <div class="drop-zone card" id="drop-zone">
+    <span class="drop-icon">📂</span>
+    <h2>Drop PDFs or images here</h2>
+    <p>Or use the buttons below</p>
+    <div class="btn-row">
+      <label class="btn btn-primary" for="file-input">➕ Add Files</label>
+      <label class="btn btn-secondary" for="folder-input">📁 Add Folder</label>
+      <button class="btn btn-secondary" id="btn-img2pdf">🖼️ Images → PDF</button>
+    </div>
+  </div>
+  <input type="file" id="file-input"   accept=".pdf,application/pdf" multiple style="display:none" />
+  <input type="file" id="folder-input" multiple webkitdirectory       style="display:none" />
+
+  <!-- Tool Panel (shown after files are added) -->
+  <div class="tool-panel" id="tool-panel" style="display:none;">
+
+    <!-- Left: File list -->
+    <div class="panel-files">
+      <div class="panel-files-hdr">
+        <span class="section-title">Files <span class="badge badge-pages" id="count-badge"></span></span>
+        <button class="btn-clear" id="clear-btn">Clear all</button>
+      </div>
+      <ul class="file-list" id="file-list"></ul>
+      <p class="list-hint">Drag ⠿ to reorder · click file to preview</p>
+    </div>
+
+    <!-- Right: Toolbar -->
+    <div class="panel-tools">
+      <div class="tools-section-label">Per File</div>
+      <button class="tool-card" id="tb-split">    <span>✂️</span><span>Split</span></button>
+      <button class="tool-card" id="tb-rotate">   <span>🔄</span><span>Rotate</span></button>
+      <button class="tool-card" id="tb-deletepg"> <span>🗑️</span><span>Delete Pages</span></button>
+      <button class="tool-card" id="tb-crop">     <span>📐</span><span>Crop</span></button>
+      <button class="tool-card" id="tb-annotate"> <span>🖊️</span><span>Annotate</span></button>
+      <button class="tool-card" id="tb-fillform"> <span>🔲</span><span>Fill Forms</span></button>
+      <button class="tool-card" id="tb-sign">     <span>✍️</span><span>Signature</span></button>
+      <button class="tool-card" id="tb-pdf2img">  <span>📸</span><span>PDF→Images</span></button>
+      <button class="tool-card" id="tb-reverse">  <span>🔄</span><span>Reverse Order</span></button>
+      <button class="tool-card" id="tb-bgcolor">  <span>🎨</span><span>Background Color</span></button>
+      <button class="tool-card" id="tb-hyperlink"><span>🔗</span><span>Add Hyperlink</span></button>
+      <button class="tool-card" id="tb-qrcode">  <span>📱</span><span>Embed QR Code</span></button>
+      <button class="tool-card" id="tb-extract">  <span>📄</span><span>Extract Images</span></button>
+
+      <div class="tools-section-label" style="margin-top:16px;">On Merge</div>
+      <button class="tool-card" id="tb-pagenum">  <span>📐</span><span>Page Numbers</span></button>
+      <button class="tool-card" id="tb-bm">       <span>🔖</span><span>Bookmarks</span></button>
+      <button class="tool-card" id="tb-compress">  <span>🗜️</span><span>Compress</span></button>
+      <button class="tool-card" id="tb-watermark"> <span>🖊️</span><span>Watermark</span></button>
+      <button class="tool-card" id="tb-meta">      <span>📋</span><span>Metadata</span></button>
+    </div>
+  </div>
+
+  <!-- Active feature chips -->
+  <div class="active-features" id="active-features"></div>
+
+  <!-- Merge Section -->
+  <section class="merge-section" id="merge-section" style="display:none;">
+    <div class="stats-bar">
+      <div class="stat"><span>🗂</span><b id="stat-files">0</b> files</div>
+      <div class="stat"><span>📄</span><b id="stat-pages">—</b> pages</div>
+      <div class="stat"><span>💾</span><b id="stat-size">0 B</b></div>
+    </div>
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-label"><span id="progress-label-text">Processing…</span><span id="progress-pct">0%</span></div>
+      <div class="progress-track"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+    </div>
+    <div class="action-row">
+      <button class="btn btn-primary btn-action" id="merge-btn" disabled>🔗 Merge PDFs</button>
+      <button class="btn btn-download btn-action" id="download-btn" disabled>⬇️ Download <span class="download-label" id="download-label"></span></button>
+    </div>
+    <div class="merged-preview-wrap" id="merged-preview-wrap" style="display:none;">
+      <span>🔗 merged.pdf ready</span>
+      <button class="btn-text" id="btn-preview-merged">👁 Preview</button>
+    </div>
+    <div class="success-banner" id="success-banner">✅ merged.pdf downloaded!</div>
+  </section>
+
+  <!-- Hidden feature modals for compress/watermark/metadata (reuse existing ones from previous build) -->
+
+  <!-- Compress Modal -->
+  <div class="modal-overlay" id="compress-overlay">
+    <div class="modal feat-modal">
+      <div class="modal-hdr">
+        <div class="modal-title"><span>🗜️</span><span>Compress PDF</span></div>
+        <button class="icon-btn" data-close="compress-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="hint-text">Compression is applied during the Merge step.</p>
+        <label class="checkbox-label"><input type="checkbox" id="compress-xref" checked /> Use compressed cross-reference table (smaller file)</label>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="compress-overlay">Cancel</button>
+          <button class="btn btn-primary" id="compress-confirm">✅ Enable & Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Watermark Modal -->
+  <div class="modal-overlay" id="watermark-overlay">
+    <div class="modal feat-modal">
+      <div class="modal-hdr">
+        <div class="modal-title"><span>🖊️</span><span>Add Watermark</span></div>
+        <button class="icon-btn" data-close="watermark-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">Text</label><input type="text" id="wm-text" class="form-input" value="CONFIDENTIAL" /></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Size</label><input type="number" id="wm-size" class="form-input" value="48" /></div>
+          <div class="form-group"><label class="form-label">Opacity</label><input type="number" id="wm-opacity" class="form-input" value="0.15" step="0.01" min="0.01" max="1" /></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Position</label>
+          <div class="rotation-btns">
+            <button class="rot-btn active" data-pos="center">Center</button>
+            <button class="rot-btn" data-pos="diagonal">Diagonal</button>
+            <button class="rot-btn" data-pos="bottom-right">Bottom-right</button>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="watermark-overlay">Cancel</button>
+          <button class="btn btn-primary" id="watermark-confirm">✅ Enable & Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Metadata Modal -->
+  <div class="modal-overlay" id="meta-overlay">
+    <div class="modal feat-modal">
+      <div class="modal-hdr">
+        <div class="modal-title"><span>📋</span><span>Edit Metadata</span></div>
+        <button class="icon-btn" data-close="meta-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">Title</label><input type="text" id="meta-title" class="form-input" placeholder="My Document" /></div>
+        <div class="form-group"><label class="form-label">Author</label><input type="text" id="meta-author" class="form-input" placeholder="Your Name" /></div>
+        <div class="form-group"><label class="form-label">Subject</label><input type="text" id="meta-subject" class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Keywords</label><input type="text" id="meta-keywords" class="form-input" /></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="meta-overlay">Cancel</button>
+          <button class="btn btn-primary" id="meta-confirm">✅ Save & Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Split Modal (per-file) -->
+  <div class="modal-overlay" id="split-overlay">
+    <div class="modal feat-modal">
+      <div class="modal-hdr">
+        <div class="modal-title"><span>✂️</span><span>Split PDF</span></div>
+        <button class="icon-btn" data-close="split-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">File</label><div class="info-chip" id="split-filename"></div></div>
+        <div class="form-group"><label class="form-label">Total pages</label><div class="info-chip" id="split-total-pages"></div></div>
+        <div class="form-group"><label class="form-label">Ranges <span class="hint">(e.g. 1-3, 5, 7-9)</span></label><input type="text" id="split-ranges" class="form-input" placeholder="1-3, 5" /></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="split-overlay">Cancel</button>
+          <button class="btn btn-primary" id="split-confirm">✂️ Split & Download</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rotate Modal (per-file) -->
+  <div class="modal-overlay" id="rotate-overlay">
+    <div class="modal feat-modal">
+      <div class="modal-hdr">
+        <div class="modal-title"><span>🔄</span><span>Rotate Pages</span></div>
+        <button class="icon-btn" data-close="rotate-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">File</label><div class="info-chip" id="rotate-filename"></div></div>
+        <div class="form-group"><label class="form-label">Pages <span class="hint">(all / 1-3 / 2)</span></label><input type="text" id="rotate-pages" class="form-input" value="all" /></div>
+        <div class="form-group"><label class="form-label">Angle</label>
+          <div class="rotation-btns">
+            <button class="rot-btn active" data-deg="90">↻ 90°</button>
+            <button class="rot-btn" data-deg="180">↻ 180°</button>
+            <button class="rot-btn" data-deg="270">↺ 270°</button>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="rotate-overlay">Cancel</button>
+          <button class="btn btn-primary" id="rotate-confirm">🔄 Apply & Replace</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Pages Modal (per-file) -->
+  <div class="modal-overlay" id="delete-overlay">
+    <div class="modal feat-modal">
+      <div class="modal-hdr">
+        <div class="modal-title"><span>🗑️</span><span>Delete Pages</span></div>
+        <button class="icon-btn" data-close="delete-overlay">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">File</label><div class="info-chip" id="delete-filename"></div></div>
+        <div class="form-group"><label class="form-label">Total pages</label><div class="info-chip" id="delete-total-pages"></div></div>
+        <div class="form-group"><label class="form-label">Pages to delete <span class="hint">(e.g. 1, 3-5)</span></label><input type="text" id="delete-pages" class="form-input" placeholder="1, 3-5" /></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="delete-overlay">Cancel</button>
+          <button class="btn btn-danger-filled" id="delete-confirm">🗑️ Delete Pages</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">🔒 100% client-side · no uploads · no tracking</footer>
+</div>
+
+<!-- ══ REVERSE ORDER MODAL ══ -->
+<div class="modal-overlay" id="reverse-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>🔄</span><span>Reverse Page Order</span></div>
+      <button class="icon-btn" data-close="reverse-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="reverse-target-file"></select>
+      </div>
+      <p class="hint-text">All pages will be reversed (last page becomes first). The file is replaced in the queue.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="reverse-overlay">Cancel</button>
+        <button class="btn btn-primary" id="reverse-confirm">🔄 Reverse &amp; Replace</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ BACKGROUND COLOR MODAL ══ -->
+<div class="modal-overlay" id="bgcolor-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>🎨</span><span>Background Color</span></div>
+      <button class="icon-btn" data-close="bgcolor-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="bgcolor-target-file"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Pages <span class="hint">(all, 1-3, 2)</span></label>
+        <input type="text" id="bgcolor-pages" class="form-input" value="all" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Background color</label>
+        <input type="color" id="bgcolor-color" value="#ffffff" class="form-input" style="padding:4px;height:44px;" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Opacity (0–1)</label>
+        <input type="number" id="bgcolor-opacity" class="form-input" value="1" min="0.01" max="1" step="0.05" />
+      </div>
+      <p class="hint-text">A colored rectangle is drawn behind all existing content on each selected page.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="bgcolor-overlay">Cancel</button>
+        <button class="btn btn-primary" id="bgcolor-confirm">🎨 Apply &amp; Replace</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ HYPERLINK MODAL ══ -->
+<div class="modal-overlay" id="hyperlink-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>🔗</span><span>Add Hyperlink</span></div>
+      <button class="icon-btn" data-close="hyperlink-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="hyperlink-target-file"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Page number</label>
+        <input type="number" id="hyperlink-page" class="form-input" value="1" min="1" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL</label>
+        <input type="url" id="hyperlink-url" class="form-input" placeholder="https://example.com" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Link label text (shown on page)</label>
+        <input type="text" id="hyperlink-label" class="form-input" placeholder="Click here" />
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">X</label><input type="number" id="hyperlink-x" class="form-input" value="40" /></div>
+        <div class="form-group"><label class="form-label">Y (from bottom)</label><input type="number" id="hyperlink-y" class="form-input" value="40" /></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Width</label><input type="number" id="hyperlink-w" class="form-input" value="160" /></div>
+        <div class="form-group"><label class="form-label">Height</label><input type="number" id="hyperlink-h" class="form-input" value="20" /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="hyperlink-overlay">Cancel</button>
+        <button class="btn btn-primary" id="hyperlink-confirm">🔗 Add Link &amp; Replace</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ QR CODE MODAL ══ -->
+<div class="modal-overlay" id="qrcode-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>📱</span><span>Embed QR Code</span></div>
+      <button class="icon-btn" data-close="qrcode-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="qr-target-file"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL or text to encode</label>
+        <input type="text" id="qr-text" class="form-input" placeholder="https://example.com" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Pages <span class="hint">(all, 1, 1-3)</span></label>
+        <input type="text" id="qr-pages" class="form-input" value="all" />
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">X position</label><input type="number" id="qr-x" class="form-input" value="20" /></div>
+        <div class="form-group"><label class="form-label">Y (from bottom)</label><input type="number" id="qr-y" class="form-input" value="20" /></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Size (px)</label>
+        <input type="number" id="qr-size" class="form-input" value="80" min="20" max="400" />
+      </div>
+      <div id="qr-preview-wrap" style="display:none;margin-top:4px;">
+        <label class="form-label">Preview</label>
+        <canvas id="qr-preview-canvas" style="border-radius:6px;border:1px solid var(--border);background:#fff;"></canvas>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="qrcode-overlay">Cancel</button>
+        <button class="btn btn-secondary" id="qr-preview-btn">👁 Preview QR</button>
+        <button class="btn btn-primary" id="qr-confirm">📱 Embed &amp; Replace</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ EXTRACT IMAGES MODAL ══ -->
+<div class="modal-overlay" id="extract-overlay">
+  <div class="modal feat-modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><span>📄</span><span>Extract Images</span></div>
+      <button class="icon-btn" data-close="extract-overlay">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Select file</label>
+        <select class="form-input" id="extract-target-file"></select>
+      </div>
+      <p class="hint-text">Scans the PDF for embedded image objects and downloads each one as a PNG file.</p>
+      <div id="extract-progress" style="display:none;" class="info-box">Scanning…</div>
+      <div id="extract-results" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;max-height:180px;overflow-y:auto;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close="extract-overlay">Cancel</button>
+        <button class="btn btn-primary" id="extract-confirm">📄 Scan &amp; Download All</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Google Fonts for signature typing -->
+<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&family=Pacifico&family=Caveat:wght@600&display=swap" rel="stylesheet" />
+
+<script src="app.js"></script>
+</body>
+</html>
